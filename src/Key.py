@@ -189,7 +189,7 @@ class Key:
         Returns:
             bytes: La clé au format PEM.
         """
-        if encryption:
+        if encryption and encryption != "none":
             return self.cryptoKey.private_bytes(
                             encoding=Encoding.PEM,
                             format=PrivateFormat.PKCS8,

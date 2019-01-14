@@ -64,7 +64,7 @@ class CertificateTemplate:
 # ---------- Subject --------------#
     @property
     def subject(self):
-        """ (x509.Subject): Le sujet du template."""
+        """ (Subject): Le sujet du template."""
         return self._subject
 
     @subject.setter
@@ -116,7 +116,7 @@ class CertificateTemplate:
             (x509.CertificateBuilder): Le builder
         """
         builder = x509.CertificateBuilder()
-        builder = builder.subject_name(self.subject)
+        builder = builder.subject_name(self.subject.x509Name)
         for ext, critical in self._extensionsDict.items():
             builder = builder.add_extension(ext, critical)
         return builder
@@ -128,7 +128,7 @@ class CertificateTemplate:
             (x509.CertificateSigningRequestBuilder): Le builder
         """
         builder = x509.CertificateSigningRequestBuilder()
-        builder = builder.subject_name(self.subject)
+        builder = builder.subject_name(self.subject.x509Name)
         for ext, critical in self._extensionsDict.items():
             builder = builder.add_extension(ext, critical)
         return builder

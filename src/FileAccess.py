@@ -183,9 +183,9 @@ class FileAccess(object):
         if path.stat().st_gid != self.gid:
             if isValid:
                 error_dict[path] = [AccessError.GROUP]
+                isValid = False
             else:
                 error_dict[path] += [AccessError.GROUP]
-            isValid = False
 
         #Sélection de la partie permission de st_mode
         file_mode = stat.S_IMODE(path.stat().st_mode) & 0o777
@@ -193,9 +193,13 @@ class FileAccess(object):
         # Récursion sur les sous-dossiers
         if path.is_dir():
             # Le droit r implite le droit x pour les dossiers
-            isValid, error_list_mode = checkMode(file_mode, self.dirMode)
+            isValidMode, error_list_mode = checkMode(file_mode, self.dirMode)
             if error_list_mode:
-                error_dict[path] += error_list_mode
+                if isValid:
+                    error_dict[path] = error_list_mode
+                    isValid = False
+                else:
+                    error_dict[path] += error_list_mode
 
             if rec > 0:
                 for file in path.iterdir():
@@ -207,6 +211,7 @@ class FileAccess(object):
             if not isValidMode:
                 if isValid:
                     error_dict[path] = error_list_mode
+                    isValid = False
                 else:
                     error_dict[path] += error_list_mode
 

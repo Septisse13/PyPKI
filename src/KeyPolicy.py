@@ -6,6 +6,7 @@ from cryptography.hazmat.backends import default_backend
 import jsonUtils
 import json
 
+
 from Key import Key
 import datetime
 
@@ -17,8 +18,8 @@ class KeyPolicy:
         self.duration = duration
         self.algorithm = algorithm
         self.encryption = encryption
-        pass
 
+#-------------------------- Duration ------------------------------#
     @property
     def duration(self):
         """ (datetime.timedelta): La durée de vie des clé """
@@ -26,15 +27,20 @@ class KeyPolicy:
 
     @duration.setter
     def duration(self, duration):
-        if isinstance(duration, int):
-            if duration <= 0:
-                raise ValueError("Duration must be positive.")
-            else:
-                self.duration = datetime.timedelta(seconds=duration)
-        elif isinstance(duration, datetime.timedelta):
-            self._duration = duration
-        else:
-            raise TypeValue("Duration must be a datetime.timedelta.")
+        if isinstance(duration, str):
+            duration = datetime.timedelta(seconds=int(duration))
+        elif isinstance(duration, int):
+            duration = datetime.timedelta(seconds=duration)
+
+        if not isinstance(duration, datetime.timedelta):
+            raise TypeError("Duration must be a datetime.timedelta.")
+
+        if duration.total_seconds() <= 0:
+            raise ValueError("Duration must be positive.")
+
+        self._duration = duration
+
+#-------------------------- Algorithm ------------------------------#
 
     @property
     def algorithm(self):
@@ -45,6 +51,7 @@ class KeyPolicy:
     def algorithm(self, algorithm):
         if algorithm in Key.SUPPORTED_KEY_TYPE.values():
             self._algorithm = algorithm
+
         elif isinstance(algorithm, str):
             if algorithm in Key.SUPPORTED_KEY_TYPE.keys():
                 self.algorithm = Key.SUPPORTED_KEY_TYPE[algorithm]
@@ -52,6 +59,8 @@ class KeyPolicy:
                 raise ValueError("{algo} n'est pas supporté.".format(algo=algorithm))
         else:
             raise ValueError("{algo} n'est pas supporté.".format(algo=algorithm))
+
+#-------------------------- Encryption ------------------------------#
 
     @property
     def encryption(self):
@@ -67,6 +76,7 @@ class KeyPolicy:
             raise ValueError("{enc} is not supported.".format(enc=encryption))
         self._encryption = encryption
 
+# -------------------------- Key generation -------------------------#
     def generateKey(self) -> Key:
         """ Génère une clé conforme à la politique.
 
@@ -89,6 +99,8 @@ class KeyPolicy:
 
     def __str__(self):
         return json.dumps(self.toJSon(self), indent=4)
+
+#--------------------------------- Serialization ------------------------------#
 
     @staticmethod
     def fromJSon(keyPolicyJSon):

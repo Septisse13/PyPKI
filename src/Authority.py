@@ -14,6 +14,8 @@ from collections import OrderedDict
 
 from FileStorage import FileStorage
 from FileAccess import FileAccess
+from Key import Key
+from Subject import Subject
 
 from CertificateTemplate import CertificateTemplate
 from KeyPolicy import KeyPolicy
@@ -43,10 +45,8 @@ class Authority:
 
     def __init__(self, name):
         self.name = name
+        self._currentSignKeyId = ""
         self.initFileStorage()
-        self._authorityTemplate = CertificateTemplate()
-        self._childTemplates = {}
-        pass
 
     def initFileStorage(self,
                     signKeyDir      = SIGNKEY_DIR,
@@ -167,6 +167,12 @@ class Authority:
         self._signKeyPolicy = signKeyPolicy
 
     @property
+    def currentSignKey(self) -> Key:
+        """ (Key): La clé de signature par défaut.
+        """
+        return self._currentSignKey
+
+    @property
     def currentSignKeyId(self) -> str:
         """ (str): L'identifiant de la clé de signature par défaut.
         """
@@ -204,17 +210,17 @@ class Authority:
                 symmetric cipher that is not supported by the backend.
 
         """
-        if not signKeyId and not self.currentSignKey:
+        if not signKeyId and not self.currentSignKeyId:
             raise TypeError("currentSignKey doit être initialisée ou signKeyId doit être fournie")
 
         if signKeyId:
             self.currentSignKeyId = signKeyId
 
-        signKey_file = self.signKeyStorage.getFile(self.currentSignKeyId)
+        signKey_file = self.signKeyStorage.files[self.currentSignKeyId]
         signKey_file = Key(signKey_file, passphrase)
         self._currentSignKey = signKey_file
 
-    def renewSignKey(self):
+    def renewSignKey(self, password) -> str:
         """ Génère une nouvelle clé de signature conforme à la politique de
         gestion des clé signKeyPolicy et la stocke dans signKeyStorage.
 
@@ -232,15 +238,15 @@ class Authority:
                 supported by the backend or if the key is encrypted with a
                 symmetric cipher that is not supported by the backend.
         """
-        self._currentSignKey = self.signKeyPolicy.generateKey()
-        self.currentSignKeyId = self.getSignKeyId(self._currentSignKey)
-        self.signKeyStorage.files[self.currentSignKeyId] = self._currentSignKey.getPEM()
-        return self.currentSignKeyId
+        newkey = self.signKeyPolicy.generateKey()
+        newid = self.getSignKeyId(newkey)
+        self.signKeyStorage.files[newid] = newkey.getPEM(self.signKeyPolicy.encryption, password)
+        return newid
 
 #--------------------- Suject ---------------------#
 
     @property
-    def subject(self) -> x509.Name:
+    def subject(self) -> Subject:
         """ Le sujet de l'autorité.
 
         Cette propriété est un synonyme de authorityTemplate.subject.
@@ -254,7 +260,7 @@ class Authority:
         return self.authorityTemplate.subject
 
     @subject.setter
-    def subject(self, subject: x509.Name):
+    def subject(self, subject: Subject):
         self.authorityTemplate.subject = subject
 
 #------------------ Authority Template --------------------#
@@ -357,7 +363,7 @@ class Authority:
             cert = x509.load_pem_x509_certificate(cert, default_backend())
         elif not isinstance(cert, x509.Certificate):
             raise TypeError("Cert must be a x509.Certificate.")
-        serial_number = str(cert.serial_number)[:8]
+        serial_number = hex(cert.serial_number)[2:].upper()[:8]
         return serial_number + "-" + self.name
 
     @staticmethod
@@ -379,7 +385,7 @@ class Authority:
         """
 
         if isinstance(public_key, Key):
-            public_key = public_key.getCryptoKey()
+            public_key = public_key.cryptoKey
         elif not (isinstance(public_key, rsa.RSAPublicKey) or \
                   isinstance(public_key, rsa.RSAPrivateKey) or \
                   isinstance(public_key, rsa.DSAPublicKey) or \
@@ -403,11 +409,11 @@ class Authority:
         builder = builder.public_key(public_key)
 
         # Signature
-        sign_key = self.currentSignKey.getCryptoKey()
+        sign_key = self.currentSignKey.cryptoKey
         sign_pubkey = sign_key.public_key()
         AKI = extensions.AuthorityKeyIdentifier.from_issuer_public_key(sign_pubkey)
         builder = builder.add_extension(AKI, False)
-        builder = builder.issuer_name(self.authorityTemplate.getSubject())
+        builder = builder.issuer_name(self.authorityTemplate.subject)
         certificate = builder.sign(
             private_key=sign_key, algorithm=hashes.SHA256(),
             backend=default_backend()
@@ -488,9 +494,9 @@ class Authority:
             csr = x509.load_pem_x509_csr(csr, default_backend())
         public_key = csr.public_key()
         digest = extensions.SubjectKeyIdentifier.from_public_key(public_key).digest.hex().upper()[:8]
-        return digest + "-" + self.getName()
+        return digest + "-" + self.name
 
-    def generateCaCSR(self) -> str:
+    def generateCaCSR(self, id=None, password=None) -> str:
         """ Génère une demande signature pour currentSignKey.
 
         """
@@ -498,8 +504,12 @@ class Authority:
 
         builder = template.getCSRBuilder()
 
+        if id:
+            sign_key = Key(self.signKeyStorage.files[id], password).cryptoKey
+        else:
+            sign_key = self.currentSignKey.cryptoKey
+
         # Signature
-        sign_key = self.currentSignKey.getCryptoKey()
         csr = builder.sign(
             private_key=sign_key, algorithm=hashes.SHA256(),
             backend=default_backend()
@@ -509,7 +519,7 @@ class Authority:
         csr_file = csr.public_bytes(
             encoding=serialization.Encoding.PEM)
         id = self.getCaCSRId(csr_file)
-        self.caCSRStorage.addFile(csr_file, id)
+        self.caCSRStorage.files[id] = csr_file
 
         return id
 
@@ -527,6 +537,7 @@ class Authority:
             raise TypeError("csrStorage is not initialized")
         return self._csrStorage
 
+    @csrStorage.setter
     def csrStorage(self, csrStorage: FileStorage):
         self._csrStorage = csrStorage
 
@@ -582,7 +593,7 @@ class Authority:
 
 
     def __str__(self):
-        return json.dumps(self.toJSon(self), indent=4)
+        return json.dumps(self.toJSon(), indent=4)
 
     @staticmethod
     def fromJSon(authorityJSon):
@@ -594,20 +605,34 @@ class Authority:
         Returns:
             Authority: L'Authority.
         """
-        pass
+        authority_dict = json.loads(authorityJSon)
+        result = Authority(authority_dict["name"])
+        result.signKeyPolicy = KeyPolicy.fromJSon(authority_dict["signKeyPolicy"])
+        result.authorityTemplate = CertificateTemplate.fromJSon(authority_dict["authorityTemplate"])
 
-    @staticmethod
-    def toJSon(authority):
+        if "currentSignKeyId" in authority_dict:
+            result.currentSignKeyId = authority_dict["currentSignKeyId"]
+
+        result.signKeyStorage = FileStorage.fromJSon(authority_dict["signKeyStorage"])
+        result.caCertStorage = FileStorage.fromJSon(authority_dict["cacertStorage"])
+        result.certStorage = FileStorage.fromJSon(authority_dict["certStorage"])
+        result.childTemplateStorage = FileStorage.fromJSon(authority_dict["childTemplateStorage"])
+
+        return result
+
+    def toJSon(self):
         authority_dict = OrderedDict()
 
-        authority_dict["name"] = authority.name
-        authority_dict["signKeyPolicy"] = KeyPolicy.toJSon(authority.signKeyPolicy)
-        authority_dict["authorityTemplate"]   = CertificateTemplate.toJSon(authority.authorityTemplate)
+        authority_dict["name"] = self.name
+        authority_dict["signKeyPolicy"] = KeyPolicy.toJSon(self.signKeyPolicy)
+        authority_dict["authorityTemplate"]   = CertificateTemplate.toJSon(self.authorityTemplate)
 
-        authority_dict["signKeyStorage"]      = FileStorage.toJSon(authority.signKeyStorage)
-        authority_dict["cacertStorage"]       = FileStorage.toJSon(authority.caCertStorage)
-        authority_dict["certStorage"]         = FileStorage.toJSon(authority.certStorage)
-        authority_dict["childTemplateStorage"] = FileStorage.toJSon(authority.childTemplateStorage)
+        if self.currentSignKeyId:
+            authority_dict["currentSignKeyId"]    = self.currentSignKeyId
 
+        authority_dict["signKeyStorage"]      = FileStorage.toJSon(self.signKeyStorage)
+        authority_dict["cacertStorage"]       = FileStorage.toJSon(self.caCertStorage)
+        authority_dict["certStorage"]         = FileStorage.toJSon(self.certStorage)
+        authority_dict["childTemplateStorage"] = FileStorage.toJSon(self.childTemplateStorage)
 
         return authority_dict

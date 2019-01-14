@@ -168,6 +168,7 @@ class FileStorage:
         self.folder = folder
         self._files = FileDict(self)
 
+#---------------------------- Folder ------------------------------------#
     @property
     def folder(self):
         """ (Path): Le dossier de stockage."""
@@ -176,11 +177,15 @@ class FileStorage:
     @folder.setter
     def folder(self, folder: Path):
         if isinstance(folder, str):
-            self.folder = Path(folder)
-        elif isinstance(folder, Path):
+            folder = Path(folder)
+
+        if isinstance(folder, Path):
             self._folder = folder
         else:
             raise TypeError("Folder must be a Path")
+
+
+#-------------------------- Access ------------------------------------#
 
     @property
     def access(self):
@@ -193,6 +198,8 @@ class FileStorage:
             self._access = access
         else:
             raise TypeError("Access must be a FileAccess")
+
+#------------------------- NameTemplate --------------------------------#
 
     @property
     def nameTemplate(self):
@@ -221,7 +228,7 @@ class FileStorage:
 
     def create(self):
         """ Créé le dossier """
-        self.folder.mkdir(self.access.mode)
+        self.folder.mkdir(self.access.mode, True)
         self.updateFolder()
 
     def checkFolder(self) -> (bool, dict):
@@ -243,7 +250,7 @@ class FileStorage:
             error_dict[self.folder] = path_error_dict
 
         # Permissions des fichiers
-        for path in self.keysPath():
+        for path in self.files.keysPath():
             pathIsValid, path_error_dict = self.access.checkAccess(path, 0)
             isValid &= pathIsValid
             if not pathIsValid:
@@ -255,7 +262,7 @@ class FileStorage:
         Seul les fichiers respectant le nameTemplate sont évalués.
         """
         self.access.updateAccess(self.folder, 0)
-        for path in self.keysPath():
+        for path in self.files.keysPath():
             self.access.updateAccess(path, 0)
 
     def __str__(self):

@@ -11,11 +11,13 @@ attr = {
     NameOID.COMMON_NAME : "common name"
 }
 
-subject = Subject.Subject.fromObjStrDict(attr)
+subject = Subject.Subject(attr)
 
-print("C :" + subject.getC())
-print("ST :" + subject.getST())
-print("L :" + subject.getL())
-print("O :" + subject.getO())
-print("OU :" + subject.getOU())
-print("CN :" + subject.getCN())
+print("C :" + subject.country)
+print("ST :" + subject.state)
+print("L :" + subject.locality)
+print("O :" + subject.organization)
+print("OU :" + subject.organisationUnit)
+print("CN :" + subject.commonName)
+
+print(subject.x509Name)
